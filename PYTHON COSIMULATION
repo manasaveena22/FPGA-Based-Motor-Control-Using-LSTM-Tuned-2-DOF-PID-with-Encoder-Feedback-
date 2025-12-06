@@ -1,0 +1,106 @@
+import numpy as np 
+import matplotlib.pyplot as plt 
+import matplotlib.animation as animation 
+from vcdvcd import VCDVCD 
+import sys 
+MOTOR_INERTIA = 0.1 
+MOTOR_FRICTION = 0.8 
+MAX_SPEED_RAD_S = 8.0 
+PWM_LEVELS = 16 
+SIM_TIMESTEP = 1e-7 
+SIGNAL_PATHS = { 
+'speed_in': 'tb_motor_control.speed_in[3:0]', 
+'dir_in':   'tb_motor_control.dir_in', 
+'pwm_out':  'tb_motor_control.pwm_out' 
+} 
+VCD_FILE_PATH = 'motor_control.vcd' 
+print("Parsing VCD file...") 
+try: 
+vcd = VCDVCD(VCD_FILE_PATH, signals=list(SIGNAL_PATHS.values())) 
+speed_in_signal = vcd[SIGNAL_PATHS['speed_in']] 
+dir_in_signal = vcd[SIGNAL_PATHS['dir_in']] 
+pwm_out_signal = vcd[SIGNAL_PATHS['pwm_out']] 
+except (KeyError, FileNotFoundError) as e: 
+print(f"Error: VCD file or signal not found. Reason: {e}") 
+sys.exit() 
+speed_in_tv = speed_in_signal.tv 
+dir_in_tv = dir_in_signal.tv 
+pwm_out_tv = pwm_out_signal.tv 
+simulation_duration = pwm_out_tv[-1][0] / 1e12 
+time_points = np.arange(0, simulation_duration, SIM_TIMESTEP) 
+print(f"VCD parsed. Simulating {len(time_points)} time steps...") 
+target_duty_cycle = np.interp(time_points, [t/1e12 for t,v in speed_in_tv], [int(v, 2) for t,v in 
+speed_in_tv]) 
+target_direction = np.interp(time_points, [t/1e12 for t,v in dir_in_tv], [int(v, 2) for t,v in 
+dir_in_tv]) 
+pwm_output = np.interp(time_points, [t/1e12 for t,v in pwm_out_tv], [int(v, 2) for t,v in 
+pwm_out_tv]) 
+actual_speed = np.zeros_like(time_points) 
+accumulated_angle = np.zeros_like(time_points) 
+for i in range(1, len(time_points)): 
+effective_voltage = pwm_output[i-1] 
+if target_direction[i-1] == 1: 
+effective_voltage *= -1 
+current_speed = actual_speed[i-1] 
+acceleration = (effective_voltage * (MAX_SPEED_RAD_S / PWM_LEVELS) - 
+current_speed * MOTOR_FRICTION) / MOTOR_INERTIA 
+actual_speed[i] = current_speed + acceleration * SIM_TIMESTEP 
+accumulated_angle[i] = accumulated_angle[i-1] + actual_speed[i] * SIM_TIMESTEP 
+target_speed_plot = target_duty_cycle * (MAX_SPEED_RAD_S / PWM_LEVELS) 
+target_speed_plot[target_direction == 1] *= -1 
+print("Simulation complete. Preparing animation...") 
+fig = plt.figure(figsize=(16, 8), facecolor='white') 
+ax1 = fig.add_subplot(1, 2, 1, polar=True) 
+ax2 = fig.add_subplot(1, 2, 2) 
+ax1.set_facecolor('white') 
+ax1.set_ylim(0, 1) 
+ax1.set_thetagrids(range(0, 360, 45)) 
+ax1.set_rgrids(np.linspace(0.2, 1.0, 5)) 
+for line in ax1.xaxis.get_gridlines(): 
+line.set_color('lightgray') 
+line.set_linestyle(':') 
+for line in ax1.yaxis.get_gridlines(): 
+line.set_color('lightgray') 
+line.set_linestyle(':') 
+ax1.set_yticklabels([]) 
+ax1.set_xticklabels([f'{d}°' for d in range(0, 360, 45)], color='black') 
+ax1.set_title("Virtual Motor", color='black', fontsize=16) 
+motor_arm, = ax1.plot([], [], color='black', lw=4) 
+motor_hub, = ax1.plot([0], [0], 'o', color='red', markersize=20) 
+direction_text = ax1.text(np.pi, 0.65, '', color='darkblue', fontsize=14, ha='center', 
+weight='bold') 
+ax2.set_facecolor('white') 
+ax2.set_title("Controller Performance", color='black', fontsize=16) 
+ax2.set_xlabel("Time (s)", color='black') 
+ax2.set_ylabel("Speed (rad/s)", color='black') 
+ax2.set_xlim(0, simulation_duration) 
+ax2.set_ylim(-MAX_SPEED_RAD_S, MAX_SPEED_RAD_S) 
+ax2.tick_params(axis='x', colors='black') 
+ax2.tick_params(axis='y', colors='black') 
+ax2.grid(True, linestyle=':', color='lightgray') 
+target_line, = ax2.plot([], [], color='orange', linestyle='--', lw=2, label='Target Speed') 
+actual_line, = ax2.plot([], [], color='blue', lw=3, label='Actual Speed') 
+legend = ax2.legend(facecolor='white', edgecolor='darkgray') 
+plt.setp(legend.get_texts(), color='black') 
+info_text = ax2.text(0.98, 0.95, '', color='black', fontsize=12, ha='right', va='top', 
+transform=ax2.transAxes) 
+def update(frame): 
+target_line.set_data(time_points[:frame], target_speed_plot[:frame]) 
+actual_line.set_data(time_points[:frame], actual_speed[:frame]) 
+current_time = time_points[frame] 
+current_target = target_speed_plot[frame] 
+current_actual = actual_speed[frame] 
+info_str = f"Target: {current_target:.2f} rad/s\n" \ 
+f"Actual: {current_actual:.2f} rad/s\n" \ 
+f"Time: {current_time:.3f} s" 
+info_text.set_text(info_str) 
+current_angle = accumulated_angle[frame] 
+motor_arm.set_data([current_angle, current_angle], [0, 0.8]) 
+direction = "CW" if current_actual >= 0 else "CCW" 
+direction_text.set_text(f"Direction: {direction}") 
+return target_line, actual_line, info_text, motor_arm, direction_text 
+step = max(1, len(time_points) // 2000) 
+ani = animation.FuncAnimation(fig, update, frames=range(0, len(time_points), step), 
+blit=True, interval=10) 
+plt.tight_layout() 
+plt.show() 
