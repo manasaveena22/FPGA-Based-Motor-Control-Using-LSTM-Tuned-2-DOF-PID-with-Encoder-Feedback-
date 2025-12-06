@@ -1,0 +1,21 @@
+module encoder_interface ( 
+input wire clk, rst_n, en, ch_a, ch_b, 
+output reg signed [15:0] y_k, 
+output reg direction, error_flag 
+); 
+reg [1:0] prev_state, curr_state; 
+always @(posedge clk or negedge rst_n) begin 
+if (!rst_n) {prev_state, curr_state, y_k, direction, error_flag} <= {4'b0, 16'sd0, 1'b0, 1'b0}; 
+else if (en) begin 
+curr_state <= {ch_a, ch_b}; 
+case ({prev_state, curr_state}) 
+4'b0001, 4'b0111, 4'b1110, 4'b1000: {y_k, direction, error_flag} <= {y_k + 
+16'sd256, 1'b1, 1'b0}; 
+4'b0010, 4'b1011, 4'b1101, 4'b0100: {y_k, direction, error_flag} <= {y_k - 
+16'sd256, 1'b0, 1'b0}; 
+default: error_flag <= 1'b1; 
+endcase 
+prev_state <= curr_state; 
+end 
+end 
+endmodule 
