@@ -1,0 +1,43 @@
+module lstm_tuner ( 
+input wire clk, rst_n, en, 
+input wire signed [15:0] r_k, y_k, e_k, e_k_1, 
+output reg signed [15:0] Kp, Ki, Kd, beta); 
+reg signed [15:0] c_t, c_t_1, h_t; 
+parameter signed [15:0] W_f = 16'sd204, W_i = 16'sd77, W_o = 16'sd154, W_c = 16'sd128; 
+wire signed [15:0] forget_gate_raw, input_gate_raw, output_gate_raw, candidate_raw; 
+wire signed [15:0] forget_gate, input_gate, output_gate, candidate; 
+assign forget_gate_raw = (W_f * e_k_1) >>> 8,input_gate_raw  = (W_i * e_k)   >>> 8; 
+assign output_gate_raw = (W_o * e_k)   >>> 8, candidate_raw   = (W_c * (r_k - y_k)) >>> 8; 
+assign forget_gate = sigmoid(forget_gate_raw), input_gate  = sigmoid(input_gate_raw);    
+assign output_gate = sigmoid(output_gate_raw), candidate   = tanh(candidate_raw);      
+always @(posedge clk or negedge rst_n) begin 
+if (!rst_n) begin 
+c_t <= 16'sd0; h_t <= 16'sd0; Kp <= 16'sd64;  
+Ki <= 16'sd26; Kd <= 16'sd51; beta <= 16'sd230; 
+end else if (en) begin 
+// LSTM core equations 
+c_t   <= ((forget_gate * c_t_1) >>> 8) + ((input_gate * candidate) >>> 8); 
+h_t   <= (output_gate * tanh(c_t)) >>> 8;   
+c_t_1 <= c_t; 
+Kp    
+<= 16'sd64  + ((h_t * 16'sd38) >>> 8); 
+Ki    <= 16'sd26  + ((h_t * 16'sd26) >>> 8); 
+Kd    
+<= 16'sd51  + ((h_t * 16'sd77) >>> 8); 
+beta  <= 16'sd230 + ((h_t * 16'sd13) >>> 8); 
+end 
+end 
+function signed [15:0] tanh; 
+input signed [15:0] x; 
+begin  tanh = (x > 16'sd1024) ? 16'sd256 :  (x < -16'sd1024) ? -16'sd256 : x >>> 2; 
+end 
+endfunction 
+function signed [15:0] sigmoid; 
+input signed [15:0] x; 
+begin 
+if (x > 16'sd512)  sigmoid = 16'sd256; 
+else if (x < -16'sd512) sigmoid = 16'sd0; 
+else sigmoid = 16'sd128 + (x >>> 2); 
+end 
+endfunction 
+endmodule 
