@@ -1,0 +1,28 @@
+module fsm_pipeline ( 
+    input wire clk, rst_n, start, 
+    output reg en_encoder, en_lstm, en_pid, en_pwm 
+); 
+    parameter IDLE=3'd0, READ_ENCODER=3'd1, RUN_LSTM=3'd2, RUN_PID=3'd3, 
+GEN_PWM=3'd4; 
+    reg [2:0] state, next_state; 
+    always @(posedge clk or negedge rst_n) state <= (!rst_n) ? IDLE : next_state; 
+    always @(*) begin 
+        case (state) 
+            IDLE:         next_state = (start) ? READ_ENCODER : IDLE; 
+            READ_ENCODER: next_state = (start) ? RUN_LSTM : IDLE; 
+            RUN_LSTM:     next_state = (start) ? RUN_PID  : IDLE; 
+            RUN_PID:      next_state = (start) ? GEN_PWM  : IDLE; 
+            GEN_PWM:      next_state = (start) ? READ_ENCODER : IDLE; 
+            default:      next_state = IDLE; 
+        endcase 
+    end 
+    always @(*) begin 
+        {en_encoder, en_lstm, en_pid, en_pwm} = 4'b0; 
+        case (state) 
+            READ_ENCODER: en_encoder = 1'b1; 
+            RUN_LSTM:     en_lstm    = 1'b1; 
+            RUN_PID:      en_pid     = 1'b1; 
+            GEN_PWM:      en_pwm     = 1'b1; 
+        endcase 
+    end 
+endmodule
