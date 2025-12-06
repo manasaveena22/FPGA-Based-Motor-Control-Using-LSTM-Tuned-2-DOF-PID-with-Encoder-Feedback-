@@ -1,0 +1,24 @@
+module pid_2dof ( 
+input wire clk, rst_n, en, 
+input wire signed [15:0] r_k, y_k, e_k, e_k_1, e_k_2, Kp, Ki, Kd, beta, 
+output reg signed [15:0] u_k 
+); 
+reg signed [31:0] ff_term, fb_p, fb_i, fb_d, u_long, temp_mult; 
+always @(posedge clk or negedge rst_n) begin 
+if (!rst_n) u_k <= 16'sd0; 
+else if (en) begin 
+temp_mult = (Kp * beta) >>> 8; 
+ff_term   <= (temp_mult * r_k) >>> 8; 
+fb_p      
+<= -(Kp * y_k) >>> 8; 
+fb_i  
+fb_d      
+    <= (Ki * e_k) >>> 8; 
+<= (Kd * (e_k - (e_k_1 <<< 1) + e_k_2)) >>> 8; 
+u_long    <= ff_term + fb_p + fb_i + fb_d; 
+u_k
+       <= (u_long > 32767) ? 16'sh7FFF : (u_long < -32768) ? -16'sh8000 
+:u_long[15:0]; 
+end 
+end 
+endmodule 
